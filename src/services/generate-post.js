@@ -105,7 +105,7 @@ function fixInstruction(problems, { minChars, maxChars, length }) {
   if (tooLong) {
     lines.push(
       `Сократи текст на ${length - targetChars(maxChars)} символов и уложись в ${targetChars(maxChars)}. ` +
-        'Режь общие рассуждения и повторы, а не факты. Структуру (пункты списка, блок «Итог») ' +
+        'Режь общие рассуждения и повторы, а не факты. Структуру (пункты списка, заключительный блок) ' +
         'и рекламный блок со ссылкой оставь как есть.',
     );
   } else if (tooShort) {
@@ -139,7 +139,7 @@ async function shrinkBody(body, { maxChars, temperature, serviceTier }) {
         role: 'system',
         content:
           'Ты редактор. Сокращаешь готовый пост, ничего не дописывая и не выдумывая. ' +
-          'Сохраняешь структуру, пункты списка, блок «Итог» и рекламный блок со ссылкой ' +
+          'Сохраняешь структуру, пункты списка, заключительный блок и рекламный блок со ссылкой ' +
           'дословно. Убираешь только повторы и общие рассуждения.',
       },
       {
@@ -147,7 +147,7 @@ async function shrinkBody(body, { maxChars, temperature, serviceTier }) {
         content:
           `Сократи этот текст примерно на ${cutPercent} процентов: сейчас ${body.length} ` +
           `символов, нужно около ${target}. Каждое предложение сделай короче, ` +
-          'оставь по три пункта в каждом списке. Рекламный блок в конце и блок «Итог» ' +
+          'оставь по три пункта в каждом списке. Рекламный блок в конце и заключительный блок ' +
           `сохрани полностью.\n\n${body}`,
       },
     ],
@@ -242,7 +242,7 @@ async function nameInLead(body, projectName, { temperature, serviceTier }) {
         role: 'system',
         content:
           'Ты редактор. Правишь готовый пост минимально: меняешь только первый абзац, ' +
-          'остальной текст, пункты списков, блок «Итог» и рекламный блок переносишь дословно. ' +
+          'остальной текст, пункты списков, заключительный блок и рекламный блок переносишь дословно. ' +
           'Ничего не выдумываешь и не дописываешь от себя.',
       },
       {
@@ -284,7 +284,7 @@ export async function generatePost(article, { interactive = false } = {}) {
   // Ссылка рекламного блока — из активного промта; настройка `ad_link` только запасная
   // (см. adLinkFromPrompt: разъезд промта и настройки уже стоил клиенту дня публикаций).
   const adLink = adLinkFromPrompt(prompt.body)
-    ?? (await settings.get('ad_link', 'https://proverka-zarabotka.online'));
+    ?? (await settings.get('ad_link', 'https://proverka-zarabotka.ru'));
   const temperature = Number(await settings.get('openrouter_temperature', '0.85'));
   const maxTokens = await settings.getInt('openrouter_max_tokens', 1800);
   // flex вдвое дешевле, но может ждать в очереди — для крона это нормально.
