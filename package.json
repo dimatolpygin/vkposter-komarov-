@@ -1,0 +1,26 @@
+{
+  "name": "vkposter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Автопостинг ВК — обзоры-отзывы (sitemap → ИИ-текст → обложка → стена группы ВК)",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon --legacy-watch --watch src --ext js,json,sql src/index.js",
+    "migrate": "node src/db/migrate.js"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "pg": "^8.13.1",
+    "pino": "^9.6.0",
+    "pino-pretty": "^13.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}

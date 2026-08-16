@@ -1,0 +1,6 @@
+# Скрипты уезжают на Ubuntu-сервер. CRLF в .sh ломает шебанг («bad interpreter»),
+# поэтому переводы строк в репозитории всегда LF, независимо от Windows-хоста.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.webp binary

@@ -1,0 +1,82 @@
+# Имя проекта compose. Совпадает с именем на сервере okhost (см. /okdeploy2):
+# каталог /opt/projects/komarov-vkposter, БД komarov_vkposter, контейнер komarov-vkposter-app.
+name: komarov-vkposter
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      # Ускоряет старт и снижает нагрузку на диск — 2 ГБ ОЗУ на сервере
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+      TZ: Europe/Moscow
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  app:
+    build:
+      context: .
+      target: prod
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 3000
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_PRETTY: ${LOG_PRETTY:-true}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3000}
+      # панель управления
+      SESSION_SECRET: ${SESSION_SECRET}
+      ADMIN_LOGIN: ${ADMIN_LOGIN:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      # внешние сервисы (подключаются на этапах 2, 4, 5, 6)
+      FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-google/gemini-2.5-flash-lite}
+      OPENROUTER_FALLBACK_MODEL: ${OPENROUTER_FALLBACK_MODEL:-deepseek/deepseek-v4-flash:nitro}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      OPENROUTER_TIMEOUT_MS: ${OPENROUTER_TIMEOUT_MS:-120000}
+      KIE_API_KEY: ${KIE_API_KEY:-}
+      KIE_MODEL: ${KIE_MODEL:-gpt-image-2}
+      KIE_BASE_URL: ${KIE_BASE_URL:-https://api.kie.ai/api/v1}
+      KIE_TIMEOUT_MS: ${KIE_TIMEOUT_MS:-60000}
+      MEDIA_DIR: ${MEDIA_DIR:-/app/media}
+      POSTMYPOST_BASE_URL: ${POSTMYPOST_BASE_URL:-https://api.postmypost.io/v4.1}
+      POSTMYPOST_TOKEN: ${POSTMYPOST_TOKEN:-}
+      POSTMYPOST_PROJECT_ID: ${POSTMYPOST_PROJECT_ID:-}
+      POSTMYPOST_TIMEOUT_MS: ${POSTMYPOST_TIMEOUT_MS:-30000}
+      TZ: Europe/Moscow
+    # Публикация порта на хост живёт в файлах окружения, а не здесь: docker compose
+    # СКЛАДЫВАЕТ списки `ports` из нескольких файлов, а не заменяет. Стояло бы
+    # правило и тут, и в docker-compose.prod.yml — контейнер пытался бы занять 3000
+    # дважды и падал с «address already in use» на пустом сервере.
+    # dev → docker-compose.override.yml, прод → docker-compose.prod.yml (только 127.0.0.1).
+    volumes:
+      # Картинки постов должны переживать пересборку образа (этап 5)
+      - media:/app/media
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3000/health > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 40s
+
+volumes:
+  pgdata:
+  media:

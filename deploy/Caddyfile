@@ -1,0 +1,38 @@
+# Caddy сам получает и продлевает сертификат Let's Encrypt для {$DOMAIN}.
+# Условие одно: домен уже указывает A-записью на этот сервер, а порты 80 и 443 свободны.
+
+{
+	# Почта для Let's Encrypt: на неё придёт письмо, если продление сломается.
+	email {$ACME_EMAIL:admin@probizn.website}
+}
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# Обложки постов. Их скачивает postmypost — своим клиентом, без cookie, поэтому
+	# путь остаётся открытым (так же, как внутри приложения).
+	handle /media/* {
+		reverse_proxy app:3000
+	}
+
+	handle {
+		reverse_proxy app:3000
+	}
+
+	# X-Forwarded-* Caddy проставляет сам, приложение им доверяет (trust proxy = 1),
+	# поэтому cookie сессии уходит с флагом Secure и req.ip показывает реального клиента.
+
+	header {
+		# Панель — служебная, индексировать её незачем.
+		X-Robots-Tag "noindex, nofollow"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "same-origin"
+		-Server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}
