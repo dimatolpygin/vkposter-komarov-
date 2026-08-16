@@ -17,6 +17,12 @@ const LOCK_NAMESPACE = 771;
 /** Пауза между запросами текстов одного сайта. */
 const EXTRACT_PAUSE_MS = 600;
 
+/**
+ * Ниже этого объёма ответ firecrawl считается промахом «основного содержимого», а не
+ * короткой статьёй: пост клиента — 1200-2200 символов, писать его по трёмстам нечего.
+ */
+const MIN_ARTICLE_CHARS = 800;
+
 const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 
 async function withSourceLock(sourceId, fn) {
@@ -106,6 +112,26 @@ export async function extractOne(source, article) {
     error.botWall = true;
     throw error;
   }
+
+  // «Только основное содержимое» — это эвристика, и она промахивается. На zarabota.com
+  // firecrawl принимал за статью форму обратной связи и отдавал 328 символов («Компания
+  // или проект / Ваше имя / Телефон…»), при том что на странице лежал обзор на 9658.
+  // Порог в 200 символов такое пропускал: формально текст есть, и пост писался бы по
+  // форме обратной связи. Поэтому подозрительно короткий ответ перечитываем целиком,
+  // со всей обвязкой сайта — лишняя навигация в материале не мешает, а вот её отсутствие
+  // вместе со статьёй мешает очень. Расход растёт только на проблемных страницах.
+  if (markdown.length < MIN_ARTICLE_CHARS) {
+    logger.info(
+      { url: article.url, символов: markdown.length },
+      `Текста всего ${markdown.length} символов — перечитываю страницу целиком`,
+    );
+    const full = await firecrawl.scrape(article.url, { onlyMainContent: false });
+    if ((full.markdown?.length ?? 0) > markdown.length) {
+      markdown = full.markdown;
+      title = title ?? full.title;
+    }
+  }
+
   return { title: title ?? article.title, text: markdown, via: 'firecrawl' };
 }
 

@@ -61,6 +61,44 @@ export async function scrape(url, { onlyMainContent = true, includeLinks = false
 }
 
 /**
+ * Забирает страницу как есть, без превращения в markdown.
+ *
+ * Нужно ровно для одного случая: карта сайта у источника, который закрыт для нашего IP.
+ * `scrape()` тут не годится — markdown из XML делает кашу, теги `<loc>` и `<lastmod>`
+ * до парсера не доезжают. `onlyMainContent: false` обязателен по той же причине:
+ * у XML нет «основного содержимого», и с фильтром ответ приходит пустым.
+ *
+ * Расход тот же, что у обычного запроса страницы, поэтому вызов логируется отдельно.
+ *
+ * @returns {Promise<string>} тело ответа как есть
+ */
+export async function fetchRaw(url) {
+  if (!isConfigured()) {
+    throw new Error('FIRECRAWL_API_KEY не задан — обход блокировки по IP недоступен');
+  }
+
+  logger.info({ url }, `Расход лимита firecrawl: сырой запрос ${url}`);
+
+  const body = await request(`${config.firecrawl.baseUrl}/scrape`, {
+    method: 'POST',
+    label: 'firecrawl',
+    headers: { Authorization: `Bearer ${config.firecrawl.apiKey}` },
+    json: { url, formats: ['rawHtml'], onlyMainContent: false },
+    timeoutMs: config.firecrawl.timeoutMs,
+    retries: 2,
+    baseDelayMs: 3000,
+  });
+
+  if (!body?.success) {
+    throw new Error(`firecrawl вернул неуспешный ответ: ${JSON.stringify(body).slice(0, 300)}`);
+  }
+
+  const raw = body.data?.rawHtml ?? '';
+  if (!raw) throw new Error(`firecrawl вернул пустой ответ для ${url}`);
+  return raw;
+}
+
+/**
  * Площадки, где вместо статьи приходит оболочка плеера или ленты: текста для фактуры
  * там нет, а страница выглядит релевантной (название проекта в заголовке ролика).
  * Отсекаем на стороне поиска — это дешевле, чем скачивать и выбрасывать.

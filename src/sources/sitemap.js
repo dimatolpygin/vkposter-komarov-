@@ -1,5 +1,6 @@
 import { request } from '../lib/http-client.js';
 import { config } from '../config.js';
+import * as firecrawl from '../lib/firecrawl.js';
 import { log } from '../logger.js';
 
 const logger = log('sitemap');
@@ -50,7 +51,19 @@ export function parseSitemap(xml) {
   return { isIndex, entries };
 }
 
-async function fetchXml(url, label) {
+/**
+ * Чтение карты сайта. У источника с `fetch_via = 'firecrawl'` — через firecrawl.
+ *
+ * Это не про удобство, а про доступ: vklader отдаёт 403 на IP сервера, причём и на
+ * карту сайта, и на главную, с любым User-Agent. Пока карту читали напрямую, источник
+ * был мёртв целиком — до текстов дело не доходило, обход падал на первом же запросе.
+ * У firecrawl свои адреса, и через него та же карта приходит полностью.
+ *
+ * Обычные источники ходят напрямую: карта — это один-два запроса за проверку, тратить
+ * на них лимит firecrawl незачем.
+ */
+async function fetchXml(url, label, source) {
+  if (source?.fetch_via === 'firecrawl') return firecrawl.fetchRaw(url);
   return request(url, {
     label,
     headers: { 'User-Agent': config.userAgent, Accept: 'application/xml,text/xml,*/*' },
@@ -77,7 +90,7 @@ export async function discoverViaSitemap(source, { since, until = null, limit })
     .map((item) => item.trim())
     .filter(Boolean);
 
-  const indexXml = await fetchXml(indexUrl, label);
+  const indexXml = await fetchXml(indexUrl, label, source);
   const parsedIndex = parseSitemap(indexXml);
 
   // Источник может отдать сразу urlset вместо индекса — обрабатываем оба случая.
@@ -130,7 +143,7 @@ export async function discoverViaSitemap(source, { since, until = null, limit })
     if (emptyInRow >= 2) break;
     // Пауза между запросами: обход карт — это залп по одному хосту, а мы у него в гостях.
     if (index > 0) await sleep(REQUEST_PAUSE_MS);
-    const xml = parsedIndex.isIndex ? await fetchXml(child.loc, label) : indexXml;
+    const xml = parsedIndex.isIndex ? await fetchXml(child.loc, label, source) : indexXml;
     const { entries } = parseSitemap(xml);
     // Верхняя граница применяется только к самим материалам, но не к выбору дочерних
     // карт: `lastmod` карты — это когда её последний раз перезаписали, и свежая карта
