@@ -2,6 +2,8 @@ import { discoverViaSitemap } from './sitemap.js';
 import { discoverViaWpApi } from './wp-api.js';
 import * as scama from './adapters/scama.js';
 import * as allComment from './adapters/all-comment.js';
+import * as brokertribunal from './adapters/brokertribunal.js';
+import * as sikayetvar from './adapters/sikayetvar.js';
 import { log } from '../logger.js';
 
 const logger = log('обнаружение');
@@ -14,6 +16,8 @@ const logger = log('обнаружение');
 const ADAPTERS = {
   scama: scama.discover,
   'all-comment': allComment.discover,
+  brokertribunal: brokertribunal.discover,
+  sikayetvar: sikayetvar.discover,
 };
 
 /**

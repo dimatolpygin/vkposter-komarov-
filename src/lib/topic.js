@@ -69,6 +69,9 @@ const SECTION_SLUGS = new Set([
   'category', 'tag', 'page', 'otzyvy', 'reviews', 'rating', 'reyting', 'blacklist',
   'author', 'feed', 'search', 'sitemap', 'kontakty', 'contacts', 'about', 'o-nas', 'check',
   'glavnaya', 'home', 'index', 'archive', 'arhiv', 'shop', 'cart',
+  // brokertribunal.com: адрес обзора кончается на /overview, и без этой строки темой
+  // всех его материалов стало бы слово «overview» — они схлопнулись бы в одну.
+  'overview', 'overviews', 'brokers', 'complaints',
 ]);
 
 /** Сегменты пути в декодированном виде: у kaper.pro адреса в percent-encoded кириллице. */
