@@ -63,22 +63,33 @@
 **Цель**: проект соответствует правилам общего сервера — не поднимает свою БД, не
 публикует порты, знает свой потолок памяти.
 
+**Разведано**: `okhost new` кладёт в `.env.infra` не только `DATABASE_URL`, но и
+`POSTGRES_HOST/PORT/DB/USER/PASSWORD` — ровно те переменные, которые приложение уже читает.
+Значит **код подключения к БД трогать не нужно**, достаточно убрать из compose жёстко
+прописанный `POSTGRES_HOST: postgres` и подключить `.env.infra` через `env_file`.
+
 **Что делаем**:
-- Из `docker-compose.yml` убрать сервис `postgres` и `depends_on` на него; из
-  `docker-compose.prod.yml` — сервис `caddy` и публикацию портов (и то и другое общее).
-- Подключение к БД: поддержать `DATABASE_URL` в `src/config.js` и `src/db/pool.js`
-  (okhost выдаёт именно его в `.env.infra`), оставив старые `POSTGRES_*` как запасной путь
-  для локальной разработки.
-- Контейнер назвать `komarov-vkposter-app` — на это имя ссылается общий Caddy.
-- `mem_limit` и `cpus` на сервис; сети `data` (БД) и `edge` (HTTP от Caddy) как external.
-- `.github/workflows/deploy.yml` переписать под okhost: `INSTALL_DIR`,
-  `docker compose up -d --build` одним файлом (продового слоя с Caddy больше нет).
+- `docker-compose.yml` становится боевым файлом для okhost: без своего `postgres`,
+  без `ports:`, `container_name: komarov-vkposter-app`, `mem_limit`, `cpus`,
+  сети `data` и `edge` как external, `env_file: [.env.infra, .env]` (порядок важен —
+  значения проекта перекрывают серверные).
+- Dev-слой переезжает из `docker-compose.override.yml` в `docker-compose.dev.yml`:
+  override подхватился бы автоматически и на сервере, увезя в прод свой Postgres,
+  публикацию порта и монтирование кода. Локальный Postgres назван `infra-postgres`,
+  как общий серверный, — топология одна и та же.
+- Удаляем то, что относилось к схеме выделенного VPS: `docker-compose.prod.yml`,
+  `deploy/Caddyfile`, `deploy/backup-db.sh` (бэкап делает `okhost backup`),
+  `scripts/install.sh` (сервер уже подготовлен).
+- `deploy/deploy.sh` переписан под один файл; проверка `/health` идёт изнутри
+  контейнера — наружу порт не опубликован.
+- `.github/workflows/deploy.yml`: каталог `/opt/projects/komarov-vkposter`,
+  проверка по `https://vktop545.com`.
 
 **Критерии приёмки** (закрытие → tag `stage-1-done`):
-- [ ] В `docker-compose.yml` нет сервисов `postgres`, `redis` и ни одного `ports:`
-- [ ] У сервиса `app` заданы `container_name: komarov-vkposter-app`, `mem_limit`, `cpus`
-- [ ] Приложение стартует, когда подключение задано только через `DATABASE_URL`
-- [ ] Локальный запуск (со своим Postgres через override) по-прежнему работает
+- [x] В `docker-compose.yml` нет сервисов `postgres`, `redis` и ни одного `ports:`
+- [x] У сервиса `app` заданы `container_name: komarov-vkposter-app`, `mem_limit`, `cpus`
+- [x] Подключение к БД приходит из `.env.infra`, в самом compose реквизитов нет
+- [x] Локальный запуск двумя файлами по-прежнему работает: `/health` 200, вход в панель
 
 ---
 

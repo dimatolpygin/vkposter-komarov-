@@ -68,14 +68,30 @@
 
 ## Рабочие команды
 
+Локально стек поднимается ДВУМЯ файлами — dev-слой намеренно не называется
+`docker-compose.override.yml`, иначе он подхватился бы и на сервере:
+
 ```bash
+# разово на машине: сети те же, что на сервере
+docker network create data; docker network create edge
+
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 # логи приложения
 docker compose logs app --no-log-prefix --tail 60
-# SQL
+# SQL (контейнер БД называется infra-postgres — и локально, и на сервере)
 docker compose exec -T postgres psql -U vkposter -d vkposter -c "SELECT ..."
 # сброс пароля панели: удалить аккаунт, сид создаст его заново из .env при старте
 docker compose exec -T postgres psql -U vkposter -d vkposter -c "DELETE FROM users;"
 docker compose restart app
+```
+
+На сервере всё то же самое делается через `okhost`:
+
+```bash
+okhost logs komarov-vkposter        # логи
+okhost psql komarov-vkposter        # psql в БД проекта
+okhost rebuild komarov-vkposter     # пересборка и перезапуск
+okhost env komarov-vkposter         # реквизиты БД/Redis из .env.infra
 ```
 
 При проверке панели через curl держать cookie в jar: `curl -c jar -d "login=admin&password=..."`,
@@ -437,9 +453,6 @@ docker compose up -d
 
 ## Прод (общий сервер okhost)
 
-> Дальше по разделу местами описан прод ПЕРВОГО клиента — выделенный VPS со своими
-> Postgres и Caddy. Для этого проекта верно другое, см. навык `/okdeploy2`:
-
 - Сервер `193.17.95.54` (okhost, общий на несколько клиентов), каталог
   `/opt/projects/komarov-vkposter`, домен `vktop545.com` (A-запись уже на этот IP).
 - **Свой Postgres, свой Redis и свой Caddy проект не поднимает** — они общие серверные.
@@ -455,29 +468,24 @@ docker compose up -d
   ветка выката `master`. **Пуш в `master` = выкат на прод**, поэтому только по указанию.
 
 ```bash
-# прод запускается ДВУМЯ файлами, dev-овский override не подхватывать
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
-# то же самое, но правильным способом — с ожиданием /health и подстановкой версии
+# на сервере, из /opt/projects/komarov-vkposter — боевой файл ОДИН, без -f
 ./deploy/deploy.sh          # выкатить то, что лежит в каталоге
 ./deploy/deploy.sh --pull   # подтянуть origin/master и выкатить
-./scripts/install.sh        # первичная подготовка сервера, идемпотентно
 ```
 
-- **`ports` в compose-файлах СКЛАДЫВАЮТСЯ, а не заменяются.** Поэтому публикация порта
-  живёт не в базовом файле, а в `docker-compose.override.yml` (dev, `0.0.0.0:3000`) и
-  `docker-compose.prod.yml` (прод, только `127.0.0.1:3000` — наружу ходит Caddy).
-  Правило в базовом файле давало «address already in use» на пустом сервере.
+- **Боевой файл — `docker-compose.yml`, и он запускается голым `docker compose up`**:
+  именно так делает `okhost rebuild`. Поэтому dev-слой называется `docker-compose.dev.yml`,
+  а не `docker-compose.override.yml` — иначе dev-настройки (свой Postgres, публикация
+  порта наружу, монтирование кода) уехали бы в прод сами собой.
 - **Бит запуска у `.sh` хранится в git** (`git update-index --chmod=+x`). Файл, созданный
-  на Windows, приезжает как `644`, а `git reset --hard` в выкате отменяет `chmod` на сервере —
-  cron-бэкап после первого же деплоя падал бы с «Permission denied».
-- HTTPS делает Caddy (`deploy/Caddyfile`), сертификат Let's Encrypt выпускается сам;
-  тома `caddy_data`/`caddy_config` обязательны — без них сертификат перевыпускается
-  при каждом пересоздании контейнера и упирается в недельный лимит.
+  на Windows, приезжает как `644`, а `git reset --hard` в выкате отменяет `chmod` на сервере.
+- Проверка живости после выката идёт **изнутри контейнера** (`docker exec ... curl`):
+  порт наружу не опубликован, с хоста в приложение не постучаться.
 - Версия выката видна в подвале панели (`APP_REVISION` — короткий хеш, подставляет
   `deploy/deploy.sh`). Локально переменной нет, строка не показывается.
-- Бэкап базы: `deploy/backup-db.sh`, cron `/etc/cron.d/vkposter-backup` в 03:30 МСК,
-  дампы в `/opt/vkposter/backups`, хранение 14 дней, лог `/var/log/vkposter-backup.log`.
-- После перезагрузки сервера стек поднимается сам (`restart: unless-stopped` + docker в systemd),
-  миграции применяются на старте приложения.
+- Бэкап базы делает сервер централизованно: `okhost backup`, ночью в 03:30 МСК дампы
+  всех проектов. Своего cron-бэкапа у проекта нет.
+- После перезагрузки сервера стек поднимается сам (`restart: unless-stopped` + docker
+  в systemd), миграции применяются на старте приложения.
 - На проде `NODE_ENV=production` → отладочные роуты `/_debug/*` не подключаются,
   заглушки провайдеров недоступны. Все ключи в `.env` боевые.

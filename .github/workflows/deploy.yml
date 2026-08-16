@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  # Два выката одновременно подрались бы за docker build на одном ядре.
+  # Два выката одновременно подрались бы за docker build на общем сервере.
   group: deploy-prod
   cancel-in-progress: false
 
@@ -28,14 +28,14 @@ jobs:
           HOST: ${{ secrets.SERVER_HOST }}
           USER: ${{ secrets.SERVER_USER }}
           PORT: ${{ secrets.SERVER_PORT || 22 }}
-          DIR: ${{ secrets.INSTALL_DIR || '/opt/vkposter' }}
+          DIR: ${{ secrets.INSTALL_DIR || '/opt/projects/komarov-vkposter' }}
         run: |
           ssh -p "$PORT" -o StrictHostKeyChecking=yes "$USER@$HOST" \
             "cd $DIR && ./deploy/deploy.sh --pull"
 
       - name: Проверка, что прод отвечает
         env:
-          URL: ${{ secrets.PUBLIC_URL || 'https://probizn.website' }}
+          URL: ${{ secrets.PUBLIC_URL || 'https://vktop545.com' }}
         run: |
           # /health открыт без авторизации — по нему и проверяем живость снаружи.
           curl -fsS --retry 5 --retry-delay 5 --max-time 20 "$URL/health" | head -c 400

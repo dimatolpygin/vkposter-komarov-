@@ -1,0 +1,61 @@
+# Локальная разработка. НЕ подхватывается автоматически — это осознанно:
+# на сервере `okhost rebuild` делает голый `docker compose up -d --build`, и файл
+# с именем docker-compose.override.yml уехал бы в прод вместе с dev-настройками.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+#
+# Разово на машине разработчика (сети те же, что на сервере, — топология одинаковая):
+#   docker network create data
+#   docker network create edge
+#
+# Что добавляет файл:
+#  * свой Postgres вместо общего серверного (локальный аналог infra-postgres);
+#  * панель на http://localhost:3000 и базу на localhost:5433;
+#  * монтирование кода и автосборку через nodemon --legacy-watch.
+services:
+  postgres:
+    # Имя как у общего серверного контейнера — чтобы POSTGRES_HOST в .env.infra
+    # был один и тот же и локально, и на проде.
+    container_name: infra-postgres
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+      TZ: Europe/Moscow
+    networks:
+      - data
+    ports:
+      # Чтобы подключиться psql/DBeaver с хоста
+      - "${POSTGRES_EXPOSED_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  app:
+    build:
+      target: dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      LOG_PRETTY: "true"
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    volumes:
+      - ./src:/app/src
+      - ./docs:/app/docs
+      - media:/app/media
+    # node_modules берём из образа, чтобы монтирование не затирало их
+
+volumes:
+  pgdata:
