@@ -880,7 +880,7 @@ export function panelRouter() {
       const nextWithoutImage = await posts.nextWithoutImage();
       const nextToPublish = await posts.nextForPublishing();
 
-      const rows = list.length
+      const postList = list.length
         ? list
             .map(
               (item) => `<tr>
@@ -902,7 +902,10 @@ export function panelRouter() {
                 <td class="hint">${esc(formatDate(item.created_at))}</td>
               </tr>`,
             )
-            .join('\n')
+        : [];
+      const postsClip = clipRows(postList, { limit: 10, label: 'постов' });
+      const rows = postList.length
+        ? postsClip.body
         : '<tr><td colspan="8" class="empty">Постов пока нет.</td></tr>';
 
       const body = `
@@ -979,13 +982,14 @@ export function panelRouter() {
 
         <h2>Сгенерированные посты</h2>
         <div class="card">
-          <table>
+          <table id="${postsClip.id}" class="${postsClip.className.trim()}">
             <thead><tr>
               <th>ID</th><th>Обложка</th><th>Заголовок</th><th>Символов</th><th>Модель</th>
               <th>Время / цена</th><th>Статус</th><th>Создан</th>
             </tr></thead>
             <tbody>${rows}</tbody>
           </table>
+          ${postsClip.toggle}
         </div>`;
 
       res.type('html').send(
@@ -2412,8 +2416,14 @@ export function panelRouter() {
 /** Миниатюра обложки в списке постов: 96 px — сразу видно, читается ли текст мелким. */
 function thumbCell(item) {
   if (item.image_url) {
+    // `loading="lazy"` и размеры до загрузки. Обложка от kie.ai весит около двух
+    // мегабайт, а в списке их тридцать: страница «Посты» тянула под шестьдесят
+    // мегабайт разом. Ленивая загрузка не уменьшает файл (это отдельная задача,
+    // этап 9), но браузер запрашивает только то, что попало в окно, а не весь список.
+    // Ширина и высота заданы явно, чтобы таблица не прыгала по мере подгрузки.
     return `<a href="/posts/${item.id}"><img src="${esc(item.image_url)}" alt=""
-      style="width:96px;border-radius:4px;display:block"></a>`;
+      loading="lazy" decoding="async" width="96" height="96"
+      style="width:96px;height:96px;object-fit:cover;border-radius:4px;display:block"></a>`;
   }
   if (item.image_error) return `<span class="tag off">сбой</span>`;
   return '<span class="hint">нет</span>';
