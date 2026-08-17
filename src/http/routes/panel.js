@@ -1173,8 +1173,9 @@ export function panelRouter() {
                </table>
                <p class="hint" style="margin:10px 0 0">
                  Мини-превью — так обложка выглядит в ленте:
-                 <img src="${esc(post.image_url)}" alt="" style="width:160px;vertical-align:middle;
-                   border-radius:4px;margin-left:8px"></p>`
+                 <img src="${esc(post.image_url)}" alt="" loading="lazy" decoding="async"
+                   width="160" height="90" style="width:160px;height:90px;object-fit:cover;
+                   vertical-align:middle;border-radius:4px;margin-left:8px"></p>`
             : `<p class="hint" style="margin:0 0 10px">Обложки ещё нет.${
                 post.image_error ? ` Прошлая попытка: ${esc(post.image_error)}` : ''
               }${
@@ -1886,7 +1887,8 @@ export function panelRouter() {
               (item) => `<tr>
                 <td style="width:110px">${item.image_url
                     ? `<a href="/posts/${item.post_id}"><img src="${esc(item.image_url)}" alt=""
-                         style="width:96px;border-radius:4px;display:block"></a>`
+                         loading="lazy" decoding="async" width="96" height="96"
+                         style="width:96px;height:96px;object-fit:cover;border-radius:4px;display:block"></a>`
                     : '<span class="hint">нет обложки</span>'}</td>
                 <td><a href="/posts/${item.post_id}">${esc(item.post_title ?? `пост #${item.post_id}`)}</a><br>
                     <span class="hint">${esc(item.topic_name ?? item.topic_key ?? '')}</span></td>
