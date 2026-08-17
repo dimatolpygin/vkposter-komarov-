@@ -3,7 +3,7 @@ import * as posts from '../repo/posts.js';
 import { query } from '../db/pool.js';
 import { normalizeUrl, hostOf } from '../lib/url.js';
 import { extractTopic } from '../lib/topic.js';
-import { extractOne } from './check-source.js';
+import { extractOne, MIN_ARTICLE_CHARS } from './check-source.js';
 import { generatePost } from './generate-post.js';
 import { generateImageForPost } from './generate-image.js';
 import { log, errFields } from '../logger.js';
@@ -121,7 +121,12 @@ export async function createManualPost({ url, topic, withImage = true, force = f
       // модель умеет писать по одной теме, так работают all-comment и scama.net.
       try {
         const extracted = await extractOne(source, article);
-        if (extracted?.text?.length > 200) {
+        // Порог тот же, что в обходе источников, а не 200 символов. Поймано на ссылке
+        // с Дзена: страница отдала боту 573 символа навигационного меню («Найти в Дзене,
+        // Подписки, Новости…»), это прошло старый порог и легло в базу как текст статьи —
+        // пост писался по меню. Меньше порога считаем, что текста нет: пусть модель
+        // пишет по теме, так работают all-comment и scama.net.
+        if (extracted?.text?.length >= MIN_ARTICLE_CHARS) {
           await articles.saveContent(article.id, extracted);
           // Уточнение темы по настоящему заголовку — только для обычного материала.
           // У осознанного повтора ключ намеренно свой (`…-m2`), а `refreshTopic` пересчитал

@@ -74,6 +74,28 @@ const SECTION_SLUGS = new Set([
   'overview', 'overviews', 'brokers', 'complaints',
 ]);
 
+/**
+ * Slug — непрозрачный идентификатор, а не название.
+ *
+ * Поймано на ручном добавлении ссылки: у статьи в Дзене адрес `/a/X1zlGkxAMCQ4bQSZ`,
+ * и темой поста стало «X1zlGkxAMCQ4bQSZ», хотя заголовок страницы был нормальный —
+ * «Объективное исследование брокера-мошенника „Бинариум“». Защита ниже (не верить
+ * заголовку, если он не пересекается с адресом) тут срабатывала наоборот: она создана
+ * против сайтов, которые ставят разным статьям один заголовок, а против случайного
+ * идентификатора в адресе бессильна.
+ *
+ * Признаки идентификатора: в slug нет разделителей (иначе это человекочитаемое имя)
+ * и при этом либо смешан регистр, либо он длинный и с цифрами. Такому slug'у не верим
+ * вообще: заголовок страницы всегда лучше случайной строки.
+ */
+function looksLikeOpaqueId(slug) {
+  if (!slug || slug.length < 8) return false;
+  if (/[-_]/.test(slug)) return false;
+  const mixedCase = /[a-z]/.test(slug) && /[A-Z]/.test(slug);
+  const longWithDigits = slug.length >= 12 && /\d/.test(slug);
+  return mixedCase || longWithDigits;
+}
+
 /** Сегменты пути в декодированном виде: у kaper.pro адреса в percent-encoded кириллице. */
 function pathSegments(raw) {
   try {
@@ -283,7 +305,10 @@ export function extractTopic({ title, url, topicHint }) {
   // Но slug бывает разделом, а не названием: у scama.net все адреса вида `/check?id=NNN`,
   // и ключ «check» склеил бы все 47 тем источника в одну. Такие slug'и не берём.
   const slugRaw = pathSegments(url).at(-1);
-  const slug = slugRaw && !SECTION_SLUGS.has(slugRaw.toLowerCase()) ? slugRaw : null;
+  const slugUsable = slugRaw
+    && !SECTION_SLUGS.has(slugRaw.toLowerCase())
+    && !looksLikeOpaqueId(slugRaw);
+  const slug = slugUsable ? slugRaw : null;
   const slugKey = keyFromText(slug);
   const titleKey = keyFromText(nameFromTitle(title));
 

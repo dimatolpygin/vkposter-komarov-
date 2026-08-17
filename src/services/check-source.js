@@ -21,7 +21,7 @@ const EXTRACT_PAUSE_MS = 600;
  * Ниже этого объёма ответ firecrawl считается промахом «основного содержимого», а не
  * короткой статьёй: пост клиента — 1200-2200 символов, писать его по трёмстам нечего.
  */
-const MIN_ARTICLE_CHARS = 800;
+export const MIN_ARTICLE_CHARS = 800;
 
 const sleep = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
 
