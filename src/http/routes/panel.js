@@ -64,15 +64,14 @@ export function panelRouter() {
       const overdue = map.schedule_enabled === 'on'
         && isRunDue(map, lastCycle?.started_at ?? map.schedule_enabled_at ?? null);
 
+      // Четыре плитки, а не восемь. Восемь равных чисел не отвечали на вопрос
+      // «всё ли идёт»: «Источников активно» и «Прогонов» стояли рядом с «Публикациями»
+      // и весили столько же. Остальные счётчики — строкой в свёрнутом блоке ниже.
       const body = `
         <div class="grid">
-          ${stat(`${s.sources_active} из ${s.sources_total}`, 'Источников активно')}
-          ${stat(s.groups_active, 'Групп активно')}
-          ${stat(s.articles, 'Материалов найдено')}
-          ${stat(s.topics, 'Уникальных тем')}
-          ${stat(s.posts, 'Постов сгенерировано')}
           ${stat(s.publications, 'Публикаций')}
-          ${stat(s.runs, 'Прогонов')}
+          ${stat(s.posts, 'Постов сгенерировано')}
+          ${stat(s.topics, 'Тем в запасе')}
           ${Number(s.errors_day) > 0
             ? (config.diagPath === 'errors'
               // Спрятанный журнал не должен выдавать свой адрес ссылкой с обзора:
@@ -82,8 +81,17 @@ export function panelRouter() {
               : stat(s.errors_day, 'Сбоев за сутки'))
             : stat(0, 'Сбоев за сутки')}
         </div>
-        <h2>Текущая конфигурация</h2>
+        <h2>Прогон</h2>
+        ${await runCard(lastCycle)}
+        <details class="fold">
+          <summary>Как система настроена и чем наполнена</summary>
         <div class="card">
+          <p style="margin:0 0 14px;display:flex;gap:18px;flex-wrap:wrap">
+            ${statLine(`${s.sources_active} из ${s.sources_total}`, 'источников включено')}
+            ${statLine(s.groups_active, 'групп включено')}
+            ${statLine(s.articles, 'материалов найдено')}
+            ${statLine(s.runs, 'прогонов сделано')}
+          </p>
           <table>
             <tr><th>Окно свежести</th><td>${esc(map.freshness_window_days)} дней</td></tr>
             <tr><th>Постов в день на группу</th><td>${esc(map.default_posts_per_day)}</td></tr>
@@ -103,8 +111,7 @@ export function panelRouter() {
             <tr><th>Длина поста</th><td>${esc(postLengthLabel(map))}</td></tr>
           </table>
         </div>
-        <h2>Прогон</h2>
-        ${await runCard(lastCycle)}`;
+        </details>`;
 
       res.type('html').send(
         page({
@@ -112,7 +119,7 @@ export function panelRouter() {
           active: '/',
           user: req.user,
           heading: 'Обзор',
-          sub: 'Сводка по системе. Разделы наполняются по мере прохождения этапов.',
+          sub: 'Что уже вышло, что уйдёт следующим прогоном.',
           message: buildSourceMessage(req.query),
           body,
         }),
@@ -136,16 +143,16 @@ export function panelRouter() {
             total: 0, with_text: 0, failed: 0, topics: 0, topic_duplicates: 0, skipped: 0,
           };
           return `<tr>
-            <td><strong>${esc(item.title)}</strong><br><span class="hint">${esc(item.base_url)}</span></td>
-            <td>${esc(discoveryText(item))}</td>
-            <td>${esc(item.content_mode === 'text' ? 'рерайт статьи' : 'только тема')}</td>
-            <td>${esc(fetchViaText(item.fetch_via))}</td>
-            <td>${st.total}${st.with_text ? ` <span class="hint">(с текстом ${st.with_text})</span>` : ''}${
+            <td><strong title="${esc(item.notes ?? '')}">${esc(item.title)}</strong>
+                <br><span class="hint">${esc(item.base_url)}</span></td>
+            <td>${esc(discoveryText(item))}
+                <br><span class="hint">${esc(item.content_mode === 'text' ? 'рерайт статьи' : 'только тема')}
+                · ${esc(fetchViaText(item.fetch_via))}</span></td>
+            <td>${st.total}${
               st.failed ? ` <span class="tag soon">сбоев ${st.failed}</span>` : ''
-            }</td>
-            <td>${st.topics ?? 0}${
-              st.topic_duplicates ? ` <span class="hint">дублей ${st.topic_duplicates}</span>` : ''
-            }${st.skipped ? ` <span class="hint">служебных ${st.skipped}</span>` : ''}</td>
+            }<br><span class="hint">${st.with_text ? `с текстом ${st.with_text} · ` : ''}тем ${
+              st.topics ?? 0}${st.topic_duplicates ? ` · дублей ${st.topic_duplicates}` : ''
+            }${st.skipped ? ` · служебных ${st.skipped}` : ''}</span></td>
             <td class="hint">${esc(formatDate(item.last_checked_at) || 'ни разу')}</td>
             <td>${item.is_active ? '<span class="tag on">включён</span>' : '<span class="tag off">выключен</span>'}
                 <br>${priorityForm(item)}</td>
@@ -157,14 +164,12 @@ export function panelRouter() {
                 <button class="ghost small" type="submit">${item.is_active ? 'Выключить' : 'Включить'}</button>
               </form>
             </td>
-          </tr>
-          <tr><td colspan="9" class="hint" style="padding-top:0">${esc(item.notes ?? '')}</td></tr>`;
+          </tr>`;
         })
         .join('\n');
 
-      const recentRows = recent.length
-        ? recent
-            .map(
+      const recentList = recent.length
+        ? recent.map(
               (item) => `<tr>
                 <td class="hint">${esc(item.source_code)}</td>
                 <td>${esc(item.title ?? '(заголовок появится при извлечении)')}
@@ -174,8 +179,11 @@ export function panelRouter() {
                 <td class="hint">${esc(formatDate(item.lastmod))}</td>
                 <td>${statusTag(item)}</td>
               </tr>`,
-            )
-            .join('\n')
+          )
+        : [];
+      const recentClip = clipRows(recentList, { limit: 10, label: 'материалов' });
+      const recentRows = recentList.length
+        ? recentClip.body
         : '<tr><td colspan="5" class="empty">Пока ничего не найдено. Нажмите «Проверить» у любого источника.</td></tr>';
 
       const rejectedRows = rejected.length
@@ -199,8 +207,8 @@ export function panelRouter() {
         <div class="card">
           <table>
             <thead><tr>
-              <th>Источник</th><th>Откуда берём</th><th>Режим</th><th>Доступ</th>
-              <th>Материалов</th><th>Тем</th><th>Проверен</th><th>Статус</th><th></th>
+              <th>Источник</th><th>Как берём</th><th>Найдено</th>
+              <th>Проверен</th><th>Статус</th><th></th>
             </tr></thead>
             <tbody>${rows}</tbody>
           </table>
@@ -220,23 +228,26 @@ export function panelRouter() {
 
         <h2>Последние найденные материалы</h2>
         <div class="card">
-          <table>
+          <table id="${recentClip.id}" class="${recentClip.className.trim()}">
             <thead><tr><th>Источник</th><th>Материал</th><th>Тема</th><th>Дата</th><th>Состояние</th></tr></thead>
             <tbody>${recentRows}</tbody>
           </table>
+          ${recentClip.toggle}
         </div>
 
-        <h2>Отклонённые материалы</h2>
+        <details class="fold">
+          <summary>Отклонённые материалы: дубли тем и служебные страницы</summary>
         <div class="card">
           <p class="hint" style="margin:0 0 10px">
-            Дубли темы и служебные страницы. Дубль обычно старше «победителя», поэтому
-            в списке выше он не виден — причина отклонения показана здесь.
+            Дубль обычно старше «победителя», поэтому в списке выше он не виден —
+            причина отклонения показана здесь.
           </p>
           <table>
             <thead><tr><th>Источник</th><th>Материал</th><th>Тема</th><th>Причина отклонения</th></tr></thead>
             <tbody>${rejectedRows}</tbody>
           </table>
-        </div>`;
+        </div>
+        </details>`;
 
       res.type('html').send(
         page({
@@ -361,7 +372,26 @@ export function panelRouter() {
       const mode = await settings.get('publish_mode', 'draft');
       const map = await settings.getMap();
       const next = nextRunAt(map, (await runs.lastCycle())?.started_at ?? map.schedule_enabled_at ?? null);
+      // Порядок карточек — по частоте обращения, а не по истории появления.
+      // Наверху три, которые открывают каждый день; остальное свёрнуто: пять карточек
+      // с тонкими настройками стояли вперемешку с ними, и страница читалась как
+      // список из двадцати четырёх полей без главного.
       const body = `
+        <div class="card">
+          <h2 style="margin-top:0">Режим публикации</h2>
+          <p style="margin:0 0 10px">Сейчас: ${publishModeTag(mode)}</p>
+          <p class="hint" style="margin:0 0 12px">
+            В режиме «черновики» посты создаются в postmypost со статусом 4 и на стену
+            не уходят — их видно только в интерфейсе postmypost. «Реальная публикация»
+            ставит статус 5, и пост появляется в группе ВК в назначенное время.
+          </p>
+          <form method="post" action="/settings/publish-mode">
+            <input type="hidden" name="mode" value="${mode === 'live' ? 'draft' : 'live'}">
+            <button ${mode === 'live' ? 'class="ghost"' : ''} type="submit">${
+              mode === 'live' ? 'Вернуть режим черновиков' : 'Включить реальную публикацию'
+            }</button>
+          </form>
+        </div>
         <div class="card">
           <h2 style="margin-top:0">Расписание прогонов</h2>
           <p style="margin:0 0 10px">Автозапуск: ${autoTag(map)}.
@@ -395,6 +425,49 @@ export function panelRouter() {
             </div>
           </form>
         </div>
+        <div class="card">
+          <h2 style="margin-top:0">Окно публикаций и объём</h2>
+          <p class="hint" style="margin:0 0 12px">
+            Публикации разносятся по слотам внутри окна со случайным сдвигом: залп в одну
+            минуту выглядит как бот. «Постов в день» здесь - значение для новых групп;
+            у каждой группы своё в разделе «Группы».
+          </p>
+          <p class="hint" style="margin:0 0 12px">
+            «Одна тема в ВК и ОК»: тема уходит один раз в какую-то группу ВК и один раз
+            в какую-то группу ОК - статья при этом одна, текст и обложка не пишутся дважды.
+            В поиске находятся обе площадки. Тем в день при этом нужно не «сумма квот
+            всех групп», а «максимум по сети»: 15 групп ВК и 3 группы ОК - это 15 тем,
+            три из которых продублируются в ОК. Если выключить, у каждой группы будут
+            свои темы и пересечений не будет вовсе.
+          </p>
+          <form method="post" action="/settings/posting">
+            <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">
+              <label>окно с<br>
+                <input type="text" name="posting_window_start" value="${esc(map.posting_window_start)}"
+                       style="width:80px"></label>
+              <label>по<br>
+                <input type="text" name="posting_window_end" value="${esc(map.posting_window_end)}"
+                       style="width:80px"></label>
+              <label>разброс, мин<br>
+                <input type="number" name="slot_jitter_minutes" min="0" max="120"
+                       value="${esc(map.slot_jitter_minutes)}" style="width:80px"></label>
+              <label>окно свежести, дней<br>
+                <input type="number" name="freshness_window_days" min="1" max="3650"
+                       value="${esc(map.freshness_window_days)}" style="width:80px"></label>
+              <label>постов в день<br>
+                <input type="number" name="default_posts_per_day" min="0" max="100"
+                       value="${esc(map.default_posts_per_day)}" style="width:80px"></label>
+              <label>одна тема в ВК и ОК<br>
+                <select name="mirror_networks" style="width:150px">
+                  <option value="1"${map.mirror_networks !== '0' ? ' selected' : ''}>да</option>
+                  <option value="0"${map.mirror_networks === '0' ? ' selected' : ''}>нет</option>
+                </select></label>
+              <button type="submit">Сохранить</button>
+            </div>
+          </form>
+        </div>
+        <details class="fold">
+          <summary>Тонкая настройка: длина поста, обход источников, добор тем, поиск, все ключи</summary>
         <div class="card">
           <h2 style="margin-top:0">Длина поста</h2>
           <p class="hint" style="margin:0 0 12px">
@@ -472,47 +545,6 @@ export function panelRouter() {
           </form>
         </div>
         <div class="card">
-          <h2 style="margin-top:0">Окно публикаций и объём</h2>
-          <p class="hint" style="margin:0 0 12px">
-            Публикации разносятся по слотам внутри окна со случайным сдвигом: залп в одну
-            минуту выглядит как бот. «Постов в день» здесь - значение для новых групп;
-            у каждой группы своё в разделе «Группы».
-          </p>
-          <p class="hint" style="margin:0 0 12px">
-            «Одна тема в ВК и ОК»: тема уходит один раз в какую-то группу ВК и один раз
-            в какую-то группу ОК - статья при этом одна, текст и обложка не пишутся дважды.
-            В поиске находятся обе площадки. Тем в день при этом нужно не «сумма квот
-            всех групп», а «максимум по сети»: 15 групп ВК и 3 группы ОК - это 15 тем,
-            три из которых продублируются в ОК. Если выключить, у каждой группы будут
-            свои темы и пересечений не будет вовсе.
-          </p>
-          <form method="post" action="/settings/posting">
-            <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">
-              <label>окно с<br>
-                <input type="text" name="posting_window_start" value="${esc(map.posting_window_start)}"
-                       style="width:80px"></label>
-              <label>по<br>
-                <input type="text" name="posting_window_end" value="${esc(map.posting_window_end)}"
-                       style="width:80px"></label>
-              <label>разброс, мин<br>
-                <input type="number" name="slot_jitter_minutes" min="0" max="120"
-                       value="${esc(map.slot_jitter_minutes)}" style="width:80px"></label>
-              <label>окно свежести, дней<br>
-                <input type="number" name="freshness_window_days" min="1" max="3650"
-                       value="${esc(map.freshness_window_days)}" style="width:80px"></label>
-              <label>постов в день<br>
-                <input type="number" name="default_posts_per_day" min="0" max="100"
-                       value="${esc(map.default_posts_per_day)}" style="width:80px"></label>
-              <label>одна тема в ВК и ОК<br>
-                <select name="mirror_networks" style="width:150px">
-                  <option value="1"${map.mirror_networks !== '0' ? ' selected' : ''}>да</option>
-                  <option value="0"${map.mirror_networks === '0' ? ' selected' : ''}>нет</option>
-                </select></label>
-              <button type="submit">Сохранить</button>
-            </div>
-          </form>
-        </div>
-        <div class="card">
           <h2 style="margin-top:0">Сбор материала поиском</h2>
           <p class="hint" style="margin:0 0 12px">
             У части источников (scama.net, all-comment) своих текстов нет - только названия
@@ -547,21 +579,6 @@ export function panelRouter() {
           </form>
         </div>
         <div class="card">
-          <h2 style="margin-top:0">Режим публикации</h2>
-          <p style="margin:0 0 10px">Сейчас: ${publishModeTag(mode)}</p>
-          <p class="hint" style="margin:0 0 12px">
-            В режиме «черновики» посты создаются в postmypost со статусом 4 и на стену
-            не уходят — их видно только в интерфейсе postmypost. «Реальная публикация»
-            ставит статус 5, и пост появляется в группе ВК в назначенное время.
-          </p>
-          <form method="post" action="/settings/publish-mode">
-            <input type="hidden" name="mode" value="${mode === 'live' ? 'draft' : 'live'}">
-            <button ${mode === 'live' ? 'class="ghost"' : ''} type="submit">${
-              mode === 'live' ? 'Вернуть режим черновиков' : 'Включить реальную публикацию'
-            }</button>
-          </form>
-        </div>
-        <div class="card">
           <table>
             <thead><tr><th>Ключ</th><th>Значение</th><th>Изменено</th></tr></thead>
             <tbody>${rows}</tbody>
@@ -571,7 +588,7 @@ export function panelRouter() {
           Остальные ключи правятся по месту: промты - в разделе «Промты», объём по группам -
           в разделе «Группы». Служебные значения (таймауты и интервалы опроса провайдеров)
           меняются миграцией.
-        </p>`;
+        </p>        </details>`;
 
       res.type('html').send(
         page({
@@ -1730,7 +1747,7 @@ export function panelRouter() {
       const kind = KNOWN_RUN_KINDS.includes(req.query.kind) ? req.query.kind : null;
       const list = await runs.listRecent(60, { kind: kind ?? undefined });
 
-      const rows = list.length
+      const rowList = list.length
         ? list
             .map(
               (run) => `<tr>
@@ -1749,7 +1766,10 @@ export function panelRouter() {
                 <td><code>${esc(run.request_id ?? '')}</code></td>
               </tr>`,
             )
-            .join('\n')
+        : [];
+      const runsClip = clipRows(rowList, { limit: 15, label: 'прогонов' });
+      const rows = rowList.length
+        ? runsClip.body
         : '<tr><td colspan="6" class="empty">Прогонов ещё не было</td></tr>';
 
       const filters = ['', ...KNOWN_RUN_KINDS]
@@ -1763,11 +1783,12 @@ export function panelRouter() {
 
       const body = `<div class="card">
           <p style="margin:0 0 10px">Вид: ${filters}</p>
-          <table>
+          <table id="${runsClip.id}" class="${runsClip.className.trim()}">
             <thead><tr><th>Прогон</th><th>Итог</th><th>Начат</th>
               <th>Счётчики</th><th>Ошибки</th><th>request-id</th></tr></thead>
             <tbody>${rows}</tbody>
           </table>
+          ${runsClip.toggle}
           <p class="hint" style="margin:12px 0 0">
             Счётчики — по шагам конвейера: слотов в плане, из них сгенерировано текстов
             и опубликовано. У проверки источника «найдено» - это новые материалы.
@@ -2167,10 +2188,8 @@ export function panelRouter() {
   async function runCard(lastCycle) {
     const plan = await buildPlan();
     const map = await settings.getMap();
-    const planRows = plan.items.length
-      ? plan.items
-          .map(
-            (item) => `<tr>
+    const planList = plan.items.map(
+      (item) => `<tr>
               <td>${item.slotNo}</td>
               <td>${esc(item.groupName)}</td>
               <td>${esc(item.label ?? '')}<br><span class="hint">${
@@ -2178,18 +2197,27 @@ export function panelRouter() {
               }${item.date ? ` · материал от ${esc(formatDate(item.date))}` : ''}</span></td>
               <td class="hint">${esc(formatDate(item.postAt))}</td>
             </tr>`,
-          )
-          .join('\n')
+    );
+    const planClip = clipRows(planList, { limit: 10, label: 'слотов' });
+    const planRows = plan.items.length
+      ? planClip.body
       : `<tr><td colspan="4" class="empty">${esc(plan.reason ?? 'Планировать нечего')}</td></tr>`;
 
-    const quotas = plan.groups.length
+    // Сводкой, а не перечислением: двенадцать групп в одну строку читались как
+    // сплошной текст, и главное число — сколько мест осталось — в нём терялось.
+    const quotaSummary = plan.groups.length
+      ? `${plan.groups.reduce((sum, row) => sum + row.quota, 0)} свободных мест ` +
+        `в ${plan.groups.length} группах` +
+        (plan.need ? ` · нужно тем: ${plan.need}` : '')
+      : 'нет включённых групп';
+    const quotaDetails = plan.groups.length
       ? plan.groups
           .map(
             (row) => `${esc(row.group.name)}: ${row.quota} из ${row.group.posts_per_day}` +
-              (row.publishedToday ? ` <span class="hint">(сегодня уже ${row.publishedToday})</span>` : ''),
+              (row.publishedToday ? ` (сегодня уже ${row.publishedToday})` : ''),
           )
           .join(' · ')
-      : 'нет включённых групп';
+      : '';
 
     const busySince = runningSince();
     const bgError = !busySince ? lastBackgroundError() : null;
@@ -2233,7 +2261,8 @@ export function panelRouter() {
             ? ` · <span class="tag off">осечка</span> <span class="hint">${esc(auto.failureReason)}</span>`
             : ''
         }</p>
-        <p style="margin:0 0 10px">Квоты на сегодня: ${quotas}</p>
+        <p style="margin:0 0 10px">Квоты на сегодня: ${quotaSummary}</p>
+        ${quotaDetails ? `<p class="hint" style="margin:0 0 10px">${quotaDetails}</p>` : ''}
         <p class="hint" style="margin:0 0 10px">
           ${plan.stepMinutes
             ? `Тестовая раскладка: слоты идут через ${esc(plan.stepMinutes)} мин от запуска,
@@ -2248,22 +2277,30 @@ export function panelRouter() {
               : ' (расписание «раз в день» растягивает посты на всё окно)'
           }. Если окно на сегодня уже закрыто, прогон встаёт на завтрашнее.`}
         </p>
-        <table>
+        <table id="${planClip.id}" class="${planClip.className.trim()}">
           <thead><tr><th>Слот</th><th>Группа</th><th>Материал</th><th>Время публикации</th></tr></thead>
           <tbody>${planRows}</tbody>
         </table>
+        ${planClip.toggle}
         <div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <form method="post" action="/run" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
-            <label class="hint">не больше
-              <input type="number" name="limit_per_group" min="1" max="100" value=""
-                     placeholder="все" style="width:70px"> постов на группу</label>
-            <label class="hint">слот каждые
-              <input type="number" name="step_minutes" min="0" max="600"
-                     value="${esc(map.test_slot_step_minutes ?? '0')}" style="width:70px">
-              мин (0 - по окну публикаций)</label>
             <button type="submit" data-busy="Запускаю прогон…"${plan.items.length && !busySince ? '' : ' disabled'}>${
               busySince ? 'Прогон уже идёт' : 'Запустить прогон'
             }</button>
+            <!-- Два проверочных поля свёрнуты: они нужны при отладке цикла, а на главной
+                 странице стояли рядом с кнопкой и выглядели как обязательные к заполнению. -->
+            <details class="fold" style="width:100%">
+              <summary>Проверочные настройки запуска</summary>
+              <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:6px 0 2px">
+                <label class="hint">не больше
+                  <input type="number" name="limit_per_group" min="1" max="100" value=""
+                         placeholder="все" style="width:70px"> постов на группу</label>
+                <label class="hint">слот каждые
+                  <input type="number" name="step_minutes" min="0" max="600"
+                         value="${esc(map.test_slot_step_minutes ?? '0')}" style="width:70px">
+                  мин (0 - по окну публикаций)</label>
+              </div>
+            </details>
           </form>
         </div>
         <p class="hint" style="margin:10px 0 0">
@@ -2282,7 +2319,7 @@ export function panelRouter() {
   async function runItemsTable(runId) {
     const items = await runs.listItems(runId);
     if (items.length === 0) return '';
-    const rows = items
+    const rowList = items
       .map(
         (item) => `<tr>
           <td>${item.slot_no}</td>
@@ -2294,12 +2331,13 @@ export function panelRouter() {
           <td class="hint">${esc(formatDate(item.post_at))}</td>
           <td>${runItemTag(item)}</td>
         </tr>`,
-      )
-      .join('\n');
-    return `<table style="margin-top:14px">
+      );
+    const clip = clipRows(rowList, { limit: 12, label: 'слотов' });
+    return `<table id="${clip.id}" class="${clip.className.trim()}" style="margin-top:14px">
         <thead><tr><th>Слот</th><th>Группа</th><th>Пост</th><th>Время</th><th>Состояние</th></tr></thead>
-        <tbody>${rows}</tbody>
-      </table>`;
+        <tbody>${clip.body}</tbody>
+      </table>
+      ${clip.toggle}`;
   }
 
   // Ручной запуск прогона — в фоне. Шесть слотов на живых провайдерах это 6-8 минут,
@@ -2398,6 +2436,46 @@ async function creditsText() {
 
 function stat(value, label) {
   return `<div class="card stat"><div class="n">${esc(value)}</div><div class="l">${esc(label)}</div></div>`;
+}
+
+/** Счётчик для свёрнутых блоков: одна строка вместо плитки на пол-экрана. */
+function statLine(value, label) {
+  return `<span style="white-space:nowrap"><strong>${esc(value)}</strong>
+    <span class="hint" style="margin:0">${esc(label)}</span></span>`;
+}
+
+/**
+ * Длинная таблица: первые строки видны, остальные скрыты до щелчка.
+ *
+ * Понадобилось после этапа 7: план на сутки вырос с 15 слотов до 58 (одна тема идёт
+ * в две сети), и на «Обзоре» он занимал три экрана — кнопка запуска уезжала за низ.
+ * Строки не выбрасываются, а прячутся: поиск по странице их находит, и раскрыть
+ * можно одним щелчком.
+ *
+ * @param {string[]} rows готовые `<tr>…</tr>`
+ * @param {object} [options]
+ * @param {number} [options.limit] сколько показать сразу
+ * @param {string} [options.label] надпись раскрытия
+ * @returns {{className: string, id: string, body: string, toggle: string}}
+ */
+let clipCounter = 0;
+function clipRows(rows, { limit = 10, label = 'строк' } = {}) {
+  const id = `clip${(clipCounter += 1)}`;
+  if (rows.length <= limit) {
+    return { className: '', id, body: rows.join('\n'), toggle: '' };
+  }
+  const hidden = rows.length - limit;
+  const body = [
+    ...rows.slice(0, limit),
+    ...rows.slice(limit).map((row) => row.replace('<tr>', '<tr class="more">')),
+  ].join('\n');
+  const text = `Показать остальные ${hidden} ${label}`;
+  return {
+    className: ' clip',
+    id,
+    body,
+    toggle: `<p class="more-toggle" data-clip="${id}" data-label="${esc(text)}">${esc(text)}</p>`,
+  };
 }
 
 /**

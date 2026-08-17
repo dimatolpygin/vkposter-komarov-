@@ -15,29 +15,48 @@ export function esc(value) {
     .replaceAll("'", '&#39;');
 }
 
+/**
+ * Меню двумя блоками, а не списком из одиннадцати равных ссылок.
+ *
+ * Одиннадцать пунктов подряд не говорят, с чего начинать: «Обзор» и «Промты» выглядели
+ * одинаково важными, хотя во вторые заходят раз в месяц. Сверху — то, что смотрят
+ * каждый день, ниже — наладка.
+ */
 const NAV = [
-  { href: '/', title: 'Обзор' },
-  { href: '/groups', title: 'Группы' },
-  { href: '/sources', title: 'Источники' },
-  { href: '/posts', title: 'Посты' },
-  { href: '/settings', title: 'Настройки' },
-  { href: '/prompts', title: 'Промты' },
-  { href: '/manual', title: 'Ручной режим' },
-  { href: '/archive', title: 'Из архива' },
-  { href: '/runs', title: 'Прогоны' },
-  { href: '/published', title: 'Опубликовано' },
+  {
+    group: null,
+    items: [
+      { href: '/', title: 'Обзор' },
+      { href: '/published', title: 'Опубликовано' },
+      { href: '/posts', title: 'Посты' },
+      { href: '/groups', title: 'Группы' },
+    ],
+  },
+  {
+    group: 'Наладка',
+    items: [
+      { href: '/runs', title: 'Прогоны' },
+      { href: '/sources', title: 'Источники' },
+      { href: '/prompts', title: 'Промты' },
+      { href: '/archive', title: 'Из архива' },
+      { href: '/manual', title: 'Ручной режим' },
+      { href: '/settings', title: 'Настройки' },
+    ],
+  },
 ];
 
 /**
- * Меню. «Ошибки» попадают в него только когда журнал живёт на обычном `/errors`.
+ * «Ошибки» попадают в меню только когда журнал живёт на обычном `/errors`.
  * Если `DIAG_PATH` задан своей строкой, ссылки в меню быть не должно: смысл настройки —
  * чтобы адрес журнала знал только владелец, а меню видит любой, кто вошёл в панель.
  */
-function navItems() {
-  if (config.diagPath === 'errors') {
-    return [...NAV, { href: '/errors', title: 'Ошибки' }];
-  }
-  return NAV;
+function navGroups() {
+  if (config.diagPath !== 'errors') return NAV;
+  return NAV.map((block) =>
+    block.group === 'Наладка'
+      ? { ...block, items: [...block.items, { href: '/errors', title: 'Ошибки' }] }
+      : block,
+  );
 }
 
 const STYLES = `
@@ -121,6 +140,30 @@ const STYLES = `
   .login-card h1 { font-size: 19px; margin-bottom: 18px; }
   .hint { color: var(--muted); font-size: 13px; margin-top: 6px; }
   .empty { color: var(--muted); padding: 8px 0; }
+  aside .nav-group { padding: 16px 18px 5px; font-size: 11px; letter-spacing: .06em;
+                     text-transform: uppercase; color: var(--muted);
+                     border-top: 1px solid var(--line); margin-top: 8px; }
+  /* Длинное пояснение сворачивается в две строки и раскрывается щелчком. Сворачивает
+     его скрипт, а не разметка: пояснений в панели тридцать семь, на семь тысяч знаков,
+     и переписывать каждое в <details> означало бы тридцать семь мест, где можно
+     сломать шаблонную строку. Без скрипта всё видно как раньше. */
+  p.hint.fold { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+                overflow: hidden; cursor: pointer; border-left: 2px solid var(--line);
+                padding-left: 9px; }
+  p.hint.fold:hover { border-left-color: var(--accent); }
+  p.hint.fold.open { display: block; }
+  /* Длинная таблица показывает первые строки, остальные — по щелчку. Плана на сутки
+     теперь 58 слотов, и на «Обзоре» он занимал три экрана до самого нужного — кнопки
+     запуска. Строки за порогом остаются в разметке (поиск по странице их находит),
+     просто скрыты. */
+  table.clip tr.more { display: none; }
+  table.clip.open tr.more { display: table-row; }
+  .more-toggle { cursor: pointer; color: var(--accent); font-size: 13px; margin-top: 8px; }
+  .more-toggle:hover { text-decoration: underline; }
+  /* Свёрнутый раздел страницы: заголовок-строка, содержимое по щелчку. */
+  details.fold > summary { cursor: pointer; color: var(--accent); font-size: 14px;
+                           padding: 12px 0 6px; }
+  details.fold > summary:hover { text-decoration: underline; }
 `;
 
 /** Страница внутри панели: сайдбар + контент. */
@@ -152,6 +195,25 @@ document.addEventListener('submit', function (event) {
   document.documentElement.style.cursor = 'progress';
   setTimeout(function () { button.disabled = true; }, 0);
 });
+/* Сворачивание длинных пояснений. Порог в две строки разметки, а не в число знаков:
+   то же пояснение на узком экране занимает вдвое больше строк. */
+window.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('.more-toggle').forEach(function (toggle) {
+    var table = document.getElementById(toggle.dataset.clip);
+    if (!table) return;
+    toggle.addEventListener('click', function () {
+      table.classList.toggle('open');
+      var open = table.classList.contains('open');
+      toggle.textContent = open ? 'Свернуть' : toggle.dataset.label;
+    });
+  });
+  document.querySelectorAll('p.hint').forEach(function (item) {
+    if (item.getBoundingClientRect().height <= 46) return;
+    item.classList.add('fold');
+    item.title = 'нажмите, чтобы прочитать целиком';
+    item.addEventListener('click', function () { item.classList.toggle('open'); });
+  });
+});
 window.addEventListener('pageshow', function () {
   document.documentElement.style.cursor = '';
   document.querySelectorAll('button[data-busy-on]').forEach(function (button) {
@@ -174,10 +236,13 @@ function revisionLine() {
 }
 
 export function page({ title, active, user, heading, sub, body, message }) {
-  const nav = navItems().map(
-    (item) =>
-      `<a href="${item.href}"${item.href === active ? ' class="active"' : ''}>${esc(item.title)}</a>`,
-  ).join('\n');
+  const nav = navGroups().map((block) => {
+    const links = block.items.map(
+      (item) =>
+        `<a href="${item.href}"${item.href === active ? ' class="active"' : ''}>${esc(item.title)}</a>`,
+    ).join('\n');
+    return block.group ? `<div class="nav-group">${esc(block.group)}</div>${links}` : links;
+  }).join('\n');
 
   return `<!doctype html>
 <html lang="ru">
