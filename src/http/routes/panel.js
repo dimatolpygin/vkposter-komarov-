@@ -478,6 +478,14 @@ export function panelRouter() {
             минуту выглядит как бот. «Постов в день» здесь - значение для новых групп;
             у каждой группы своё в разделе «Группы».
           </p>
+          <p class="hint" style="margin:0 0 12px">
+            «Одна тема в ВК и ОК»: тема уходит один раз в какую-то группу ВК и один раз
+            в какую-то группу ОК - статья при этом одна, текст и обложка не пишутся дважды.
+            В поиске находятся обе площадки. Тем в день при этом нужно не «сумма квот
+            всех групп», а «максимум по сети»: 15 групп ВК и 3 группы ОК - это 15 тем,
+            три из которых продублируются в ОК. Если выключить, у каждой группы будут
+            свои темы и пересечений не будет вовсе.
+          </p>
           <form method="post" action="/settings/posting">
             <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end">
               <label>окно с<br>
@@ -495,6 +503,11 @@ export function panelRouter() {
               <label>постов в день<br>
                 <input type="number" name="default_posts_per_day" min="0" max="100"
                        value="${esc(map.default_posts_per_day)}" style="width:80px"></label>
+              <label>одна тема в ВК и ОК<br>
+                <select name="mirror_networks" style="width:150px">
+                  <option value="1"${map.mirror_networks !== '0' ? ' selected' : ''}>да</option>
+                  <option value="0"${map.mirror_networks === '0' ? ' selected' : ''}>нет</option>
+                </select></label>
               <button type="submit">Сохранить</button>
             </div>
           </form>
@@ -732,6 +745,8 @@ export function panelRouter() {
       const jitter = requireInt(req.body.slot_jitter_minutes, 0, 120, 'Разброс времени, минут');
       const freshness = requireInt(req.body.freshness_window_days, 1, 3650, 'Окно свежести, дней');
       const perDay = requireInt(req.body.default_posts_per_day, 0, 100, 'Постов в день');
+      const mirror = String(req.body.mirror_networks ?? '1') === '0' ? '0' : '1';
+      await settings.set('mirror_networks', mirror);
       await settings.set('posting_window_start', start);
       await settings.set('posting_window_end', end);
       await settings.set('slot_jitter_minutes', String(jitter));
@@ -739,8 +754,9 @@ export function panelRouter() {
       await settings.set('default_posts_per_day', String(perDay));
       logger.info(
         { окно: `${start}-${end}`, разброс: jitter, свежесть: freshness, постов_в_день: perDay,
-          кто: req.user.login },
-        `Настройки постинга изменены: окно ${start}-${end}, разброс ${jitter} мин`,
+          зеркало: mirror === '1', кто: req.user.login },
+        `Настройки постинга изменены: окно ${start}-${end}, разброс ${jitter} мин, ` +
+          `одна тема в ВК и ОК — ${mirror === '1' ? 'да' : 'нет'}`,
       );
       res.redirect(
         `/settings?ok=${encodeURIComponent(`Окно публикаций ${start}-${end}, разброс ${jitter} мин`)}`,
@@ -2270,7 +2286,8 @@ export function panelRouter() {
       .map(
         (item) => `<tr>
           <td>${item.slot_no}</td>
-          <td>${esc(item.group_name)}</td>
+          <td>${esc(item.group_name)}
+              <span class="hint">${esc(pmp.networkOf(item.chanel_id).short)}</span></td>
           <td>${item.post_id
               ? `<a href="/posts/${item.post_id}">${esc(item.post_title ?? `пост #${item.post_id}`)}</a>`
               : esc(item.topic_name ?? '(материал)')}</td>

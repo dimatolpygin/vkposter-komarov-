@@ -27,6 +27,9 @@ const logger = log('прогон');
  *    слота, где встал: уже опубликованные слоты помечены `published` и повторно не уходят.
  * 3. **Сбой слота не роняет прогон.** Каждый слот — своя запись с ошибкой; остальные
  *    посты доезжают.
+ * 4. **Зеркальные слоты делят одну статью.** Одна тема идёт и в ВК, и в ОК (настройка
+ *    `mirror_networks`): второй слот не пишет текст заново, а подхватывает пост,
+ *    сделанный первым, и публикует его в свою сеть.
  */
 
 /** Ключ advisory lock прогона. Произвольная константа, но одна на весь проект. */
@@ -234,6 +237,25 @@ async function executeCycle({ kind, groupIds, limitPerGroup, stepMinutes }) {
     let step = 'подготовка слота';
     try {
       let post = item.post_id ? await posts.findById(Number(item.post_id)) : null;
+
+      // Зеркальный слот: эта же тема уже написана для другой сети в этом же прогоне.
+      // Статья должна быть одна — один текст, одна обложка, две публикации. Без этой
+      // проверки второй слот написал бы по той же теме второй текст и заказал вторую
+      // обложку, то есть заплатил дважды и выложил в ВК и ОК разные статьи.
+      if (!post && item.article_id) {
+        const twin = await runs.postIdForArticleInRun(run.id, Number(item.article_id));
+        if (twin) {
+          post = await posts.findById(twin);
+          if (post) {
+            await runs.setItemPost(item.id, post.id);
+            logger.info(
+              { прогон: run.id, слот: item.slot_no, группа: item.group_name, пост: post.id },
+              `Слот ${item.slot_no} («${item.group_name}») берёт готовый пост #${post.id} ` +
+                'той же темы — статья одна на обе сети',
+            );
+          }
+        }
+      }
 
       if (!post) {
         step = 'генерация текста';

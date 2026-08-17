@@ -141,8 +141,12 @@ export async function addItems(runId, items) {
   const params = [];
   items.forEach((item, index) => {
     const base = index * 6;
+    // Сеть слота не приходит из плана, а берётся из группы прямо в запросе: так она
+    // не может разойтись с `groups.chanel_id` и не требует правок в каждом, кто строит
+    // план (обычный прогон и наполнение из архива).
     values.push(
-      `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6})`,
+      `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, `
+      + `COALESCE((SELECT g.chanel_id FROM groups g WHERE g.id = $${base + 2}), 2))`,
     );
     params.push(
       runId,
@@ -155,7 +159,7 @@ export async function addItems(runId, items) {
     );
   });
   const { rows } = await query(
-    `INSERT INTO run_items (run_id, group_id, slot_no, article_id, post_id, post_at)
+    `INSERT INTO run_items (run_id, group_id, slot_no, article_id, post_id, post_at, chanel_id)
      VALUES ${values.join(', ')}
      RETURNING *`,
     params,
@@ -194,6 +198,27 @@ export async function setItemStatus(itemId, status, error = null) {
     `UPDATE run_items SET status = $2, error = $3, updated_at = now() WHERE id = $1`,
     [itemId, status, error ? String(error).slice(0, 1000) : null],
   );
+}
+
+/**
+ * Пост, уже написанный по этому материалу в этом же прогоне.
+ *
+ * Нужен зеркальному слоту: тема уходит и в ВК, и в ОК, но статья должна быть одна.
+ * Без этого второй слот не нашёл бы у себя `post_id` и написал бы по той же теме
+ * второй текст — с новой обложкой, то есть за вторые деньги, и с другим содержанием,
+ * хотя клиент просил ровно одну статью на двух площадках.
+ *
+ * Смотрим только внутри прогона: пост из прошлого прогона уже опубликован, и его
+ * материал в новый план не попадает вовсе.
+ */
+export async function postIdForArticleInRun(runId, articleId) {
+  const { rows } = await query(
+    `SELECT post_id FROM run_items
+      WHERE run_id = $1 AND article_id = $2 AND post_id IS NOT NULL
+      ORDER BY slot_no ASC LIMIT 1`,
+    [runId, articleId],
+  );
+  return rows[0]?.post_id ? Number(rows[0].post_id) : null;
 }
 
 /** Материалы, уже занятые планами: второй раз в очередь они не попадают. */

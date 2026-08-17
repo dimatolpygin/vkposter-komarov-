@@ -5,6 +5,7 @@ import * as posts from '../repo/posts.js';
 import * as runs from '../repo/runs.js';
 import * as settings from '../repo/settings.js';
 import { slotTimes, parseHhMm } from '../lib/schedule.js';
+import { dealPool, materialsNeeded } from '../lib/deal.js';
 import { checkSource } from './check-source.js';
 import { generatePost } from './generate-post.js';
 import { generateImageForPost } from './generate-image.js';
@@ -308,6 +309,9 @@ export async function buildArchivePlan(job, now = new Date()) {
   const windowEnd = map.posting_window_end ?? '21:00';
   const jitter = Number.parseInt(map.slot_jitter_minutes ?? '7', 10) || 7;
   const lead = Number.parseInt(map.publish_delay_minutes ?? '3', 10) || 3;
+  // Зеркалирование то же, что в обычном прогоне: правило «одна тема в ВК и в ОК»
+  // не должно зависеть от того, чем набит план — свежим или архивом.
+  const mirror = (map.mirror_networks ?? '1') !== '0';
 
   const items = [];
   let cursor = 0;
@@ -326,18 +330,13 @@ export async function buildArchivePlan(job, now = new Date()) {
       quotas.push({ group, left: Math.max(0, cap) });
     }
 
-    const dayAssignments = [];
-    let placed = true;
-    while (placed && cursor < candidates.length) {
-      placed = false;
-      for (const quota of quotas) {
-        if (quota.left <= 0 || cursor >= candidates.length) continue;
-        dayAssignments.push({ group: quota.group, candidate: candidates[cursor] });
-        cursor += 1;
-        quota.left -= 1;
-        placed = true;
-      }
-    }
+    // Кандидаты режутся ровно на этот день, и курсор двигается на израсходованное,
+    // а не на число слотов: при зеркалировании один материал закрывает два слота
+    // (ВК и ОК), и сдвиг по числу слотов проглотил бы половину архива впустую.
+    const dayNeed = materialsNeeded(quotas, mirror);
+    const slice = candidates.slice(cursor, cursor + dayNeed);
+    const { assignments: dayAssignments, used } = dealPool(quotas, slice, mirror);
+    cursor += used;
     if (dayAssignments.length === 0) continue;
 
     const times = slotTimes(dayAssignments.length, {
@@ -395,6 +394,17 @@ async function publishQueue(job) {
 
     try {
       let post = item.post_id ? await posts.findById(Number(item.post_id)) : null;
+
+      // Зеркальный слот другой сети по той же теме: статья должна быть одна, иначе
+      // ВК и ОК получат два разных текста и две обложки за двойную цену.
+      if (!post && item.article_id) {
+        const twin = await runs.postIdForArticleInRun(job.run_id, Number(item.article_id));
+        if (twin) {
+          post = await posts.findById(twin);
+          if (post) await runs.setItemPost(item.id, post.id);
+        }
+      }
+
       if (!post) {
         const article = await posts.findArticleForGeneration(Number(item.article_id));
         if (!article) throw new Error(`Материал #${item.article_id} исчез из базы`);
