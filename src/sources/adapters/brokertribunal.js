@@ -22,8 +22,19 @@ const logger = log('адаптер:brokertribunal');
 /** Разделы с обзорами. Порядок важен: брокеры для клиента первичны. */
 const LISTINGS = ['/brokers/overviews', '/investment-projects/overviews'];
 
-/** Потолок страниц на один раздел за проверку: у листинга их под сотню, весь архив не нужен. */
-const MAX_PAGES = 10;
+/**
+ * Потолок страниц на один раздел. Считается от запрошенного объёма, а не константой:
+ * обычная проверка просит 50 адресов и уходит на пять страниц, а наполнение архива
+ * просит тысячу — и должно дойти до конца листинга. В брокерах 99 страниц по 10 карточек,
+ * в инвестпроектах 10, поэтому абсолютный предел взят с запасом на рост сайта.
+ */
+const ABSOLUTE_MAX_PAGES = 130;
+const CARDS_PER_PAGE = 10;
+
+function pageCeiling(limit) {
+  const needed = Math.ceil((limit ?? CARDS_PER_PAGE) / CARDS_PER_PAGE) + 2;
+  return Math.min(ABSOLUTE_MAX_PAGES, Math.max(2, needed));
+}
 
 /** Пауза между страницами листинга: обход — это залп по чужому хосту. */
 const PAGE_PAUSE_MS = 900;
@@ -107,9 +118,10 @@ export async function discover(source, { since, until = null, limit }) {
   const items = [];
   const seen = new Set();
 
+  const maxPages = pageCeiling(limit);
   for (const listing of LISTINGS) {
     let requests = 0;
-    for (let page = 1; page <= MAX_PAGES; page += 1) {
+    for (let page = 1; page <= maxPages; page += 1) {
       if (items.length >= limit) break;
       if (requests > 0) await sleep(PAGE_PAUSE_MS);
       const url = page === 1 ? `${baseUrl}${listing}` : `${baseUrl}${listing}?page=${page}`;

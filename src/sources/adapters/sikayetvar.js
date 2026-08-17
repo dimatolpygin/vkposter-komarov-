@@ -18,8 +18,19 @@ const logger = log('адаптер:sikayetvar');
  * доставку и бытовую технику, и пост уходил бы мимо тематики групп.
  */
 
-/** Потолок страниц ленты за проверку. */
-const MAX_PAGES = 5;
+/**
+ * Потолок страниц ленты. Как и у brokertribunal, считается от запрошенного объёма:
+ * обычной проверке хватает двух-трёх страниц, наполнению архива нужно уходить вглубь.
+ * На странице около 35 жалоб, денежных из них примерно половина — отсюда делитель.
+ * Лента живая и длинная (открывается и на 150-й странице), поэтому предел ставим свой.
+ */
+const ABSOLUTE_MAX_PAGES = 80;
+const MONEY_PER_PAGE = 17;
+
+function pageCeiling(limit) {
+  const needed = Math.ceil((limit ?? MONEY_PER_PAGE) / MONEY_PER_PAGE) + 2;
+  return Math.min(ABSOLUTE_MAX_PAGES, Math.max(2, needed));
+}
 
 /** Пауза между страницами: обход — залп по чужому хосту. */
 const PAGE_PAUSE_MS = 900;
@@ -131,7 +142,8 @@ export async function discover(source, { since, until = null, limit }) {
   const seen = new Set();
   const stats = { всего: 0, мимо_темы: 0, вне_окна: 0 };
 
-  for (let page = 1; page <= MAX_PAGES; page += 1) {
+  const maxPages = pageCeiling(limit);
+  for (let page = 1; page <= maxPages; page += 1) {
     if (items.length >= limit) break;
     if (page > 1) await sleep(PAGE_PAUSE_MS);
 
