@@ -26,8 +26,19 @@ const NAV = [
   { href: '/archive', title: 'Из архива' },
   { href: '/runs', title: 'Прогоны' },
   { href: '/published', title: 'Опубликовано' },
-  { href: '/errors', title: 'Ошибки' },
 ];
+
+/**
+ * Меню. «Ошибки» попадают в него только когда журнал живёт на обычном `/errors`.
+ * Если `DIAG_PATH` задан своей строкой, ссылки в меню быть не должно: смысл настройки —
+ * чтобы адрес журнала знал только владелец, а меню видит любой, кто вошёл в панель.
+ */
+function navItems() {
+  if (config.diagPath === 'errors') {
+    return [...NAV, { href: '/errors', title: 'Ошибки' }];
+  }
+  return NAV;
+}
 
 const STYLES = `
   :root {
@@ -163,7 +174,7 @@ function revisionLine() {
 }
 
 export function page({ title, active, user, heading, sub, body, message }) {
-  const nav = NAV.map(
+  const nav = navItems().map(
     (item) =>
       `<a href="${item.href}"${item.href === active ? ' class="active"' : ''}>${esc(item.title)}</a>`,
   ).join('\n');

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAuth } from '../../auth/middleware.js';
 import { page, esc } from '../views/layout.js';
 import { query } from '../../db/pool.js';
+import { config } from '../../config.js';
 import * as sources from '../../repo/sources.js';
 import * as settings from '../../repo/settings.js';
 import * as articles from '../../repo/articles.js';
@@ -73,8 +74,12 @@ export function panelRouter() {
           ${stat(s.publications, 'Публикаций')}
           ${stat(s.runs, 'Прогонов')}
           ${Number(s.errors_day) > 0
-            ? `<a href="/errors" style="text-decoration:none">${
+            ? (config.diagPath === 'errors'
+              // Спрятанный журнал не должен выдавать свой адрес ссылкой с обзора:
+              // счётчик сбоев виден, а пройти по нему может только знающий путь.
+              ? `<a href="/errors" style="text-decoration:none">${
                 stat(s.errors_day, 'Сбоев за сутки')}</a>`
+              : stat(s.errors_day, 'Сбоев за сутки'))
             : stat(0, 'Сбоев за сутки')}
         </div>
         <h2>Текущая конфигурация</h2>
@@ -1722,7 +1727,7 @@ export function panelRouter() {
                     : 'ещё идёт'}</td>
                 <td>${runCountersText(run)}</td>
                 <td>${run.errors
-                    ? `<a href="/errors?run=${run.id}"><span class="tag off">сбоев ${run.errors}</span></a>`
+                    ? `<a href="${DIAG}?run=${run.id}"><span class="tag off">сбоев ${run.errors}</span></a>`
                     : (run.error ? `<span class="tag off">сбой</span>` : '<span class="hint">нет</span>')}
                     ${run.error ? `<br><span class="hint">${esc(cut(run.error, 120))}</span>` : ''}</td>
                 <td><code>${esc(run.request_id ?? '')}</code></td>
@@ -1939,7 +1944,13 @@ export function panelRouter() {
   });
 
   // ── Ошибки ───────────────────────────────────────────────────────────────
-  router.get('/errors', async (req, res, next) => {
+  // Путь берётся из настройки, а не зашит: на проде журнал сбоев спрятан за
+  // непубличным адресом (`DIAG_PATH`), потому что вход в панель один на всех, а тела
+  // ответов провайдеров показывать клиенту незачем. Локально настройка пустая и
+  // раздел остаётся на привычном `/errors`.
+  const DIAG = `/${config.diagPath}`;
+
+  router.get(DIAG, async (req, res, next) => {
     try {
       const runId = Number.parseInt(req.query.run, 10);
       const list = Number.isNaN(runId)
@@ -1957,7 +1968,7 @@ export function panelRouter() {
           if (row.service) params.set('service', row.service);
           const active = req.query.stage === row.stage
             && (req.query.service ?? '') === (row.service ?? '');
-          return `<a href="/errors?${params}" class="tag ${active ? 'on' : 'off'}"
+          return `<a href="${DIAG}?${params}" class="tag ${active ? 'on' : 'off'}"
               style="text-decoration:none">${esc(row.stage)}${
                 row.service ? ` · ${esc(row.service)}` : ''} (${row.n})</a>`;
         })
@@ -1965,13 +1976,13 @@ export function panelRouter() {
 
       const body = `<div class="card">
           <p style="margin:0 0 10px">
-            <a href="/errors" class="tag ${req.query.stage || !Number.isNaN(runId) ? 'off' : 'on'}"
+            <a href="${DIAG}" class="tag ${req.query.stage || !Number.isNaN(runId) ? 'off' : 'on'}"
                style="text-decoration:none">все</a>
             ${filters}
             ${Number.isNaN(runId) ? '' : `<span class="tag on">прогон #${runId}</span>`}
           </p>
           ${errorsTable(list)}
-          <form method="post" action="/errors/clear" style="margin-top:14px">
+          <form method="post" action="${DIAG}/clear" style="margin-top:14px">
             <button class="ghost" type="submit">Очистить журнал</button>
             <span class="hint" style="margin-left:8px">всего записей: ${stats.total},
               за сутки: ${stats.recent}</span>
@@ -1987,7 +1998,7 @@ export function panelRouter() {
       res.type('html').send(
         page({
           title: 'Ошибки',
-          active: '/errors',
+          active: DIAG,
           user: req.user,
           heading: 'Ошибки',
           sub: 'Последние сбои с шагом конвейера, внешним сервисом и телом ответа.',
@@ -2000,13 +2011,13 @@ export function panelRouter() {
     }
   });
 
-  router.post('/errors/clear', async (req, res) => {
+  router.post(`${DIAG}/clear`, async (req, res) => {
     try {
       const removed = await appErrors.clear();
       logger.info({ кто: req.user.login, удалено: removed }, `Журнал ошибок очищен: ${removed} записей`);
-      res.redirect(`/errors?ok=${encodeURIComponent(`Журнал очищен: удалено ${removed} записей`)}`);
+      res.redirect(`${DIAG}?ok=${encodeURIComponent(`Журнал очищен: удалено ${removed} записей`)}`);
     } catch (error) {
-      res.redirect(`/errors?err=${encodeURIComponent(error.message)}`);
+      res.redirect(`${DIAG}?err=${encodeURIComponent(error.message)}`);
     }
   });
 
