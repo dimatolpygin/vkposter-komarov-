@@ -132,7 +132,22 @@ export async function discoverViaSitemap(source, { since, until = null, limit })
   // сегодняшний день. Чтение всех пятнадцати карт подряд работало, но сайт закрыл
   // доступ по IP на 403: пятнадцать запросов карт плюс тридцать за текстами он счёл
   // атакой. С конца хватает одной-двух карт.
-  const queue = orderedByDate ? children : [...children].reverse();
+  // Порядок чтения. `sources.sitemap_order` перебивает эвристику: у torforex все 25 карт
+  // `trader-sitemap*` помечены одним lastmod, но нумерация обратная — свежее в
+  // ненумерованной первой карте, а с конца лежит 2024 год. Чтение с конца давало ноль
+  // адресов при живом источнике, поэтому у него стоит `index`.
+  const order = source.sitemap_order ?? 'auto';
+  let queue;
+  if (order === 'index') queue = children;
+  else if (order === 'reverse') queue = [...children].reverse();
+  else queue = orderedByDate ? children : [...children].reverse();
+
+  if (order !== 'auto') {
+    logger.debug(
+      { источник: source.code, порядок: order },
+      `${source.code}: порядок чтения карт задан источником — ${order}`,
+    );
+  }
 
   const found = [];
   let emptyInRow = 0;

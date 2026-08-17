@@ -182,7 +182,13 @@ export async function checkSource(source, {
       const since = sinceOverride ?? (await freshnessCutoff());
       const discoveryLimit = discoveryLimitOverride
         ?? (await settings.getInt('discovery_limit_per_source', 50));
+      // Потолок извлечения: сначала явный аргумент, потом свой потолок источника,
+      // и только потом общая настройка. Свой нужен трём сайтам с бесконечной свежей
+      // лентой (vsyapravda, backfund, trustorg): у них закрыт WP API, каждый текст —
+      // кредит firecrawl, и на общем потолке 30 они втроём выбирали бы 2700 кредитов
+      // в месяц из 5000 на весь проект.
       const extractLimit = extractLimitOverride
+        ?? source.extract_limit
         ?? (await settings.getInt('extract_limit_per_check', 10));
 
       logger.info(
