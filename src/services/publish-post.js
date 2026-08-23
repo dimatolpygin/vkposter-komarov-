@@ -11,37 +11,55 @@ import { log, errFields } from '../logger.js';
 
 const logger = log('публикация');
 
-/** Потолок длины заголовка для ОК: длинный заголовок сеть обрезает сама, и лучше это сделать по словам. */
+/** Потолок длины заголовка: длинный заголовок сеть обрежет сама, и лучше это сделать по словам. */
 const OK_TITLE_MAX = 120;
 
 /**
- * Заголовок публикации для Одноклассников.
+ * Текст поста для Одноклассников: заголовок первой строкой.
  *
- * У ОК заголовок — отдельное поле, и оно не косметическое: если его не заполнить,
- * ссылки в рекламных блоках поста перестают быть кликабельными. Для клиента это
- * означает, что пост выходит, а рекламная ссылка — ради которой пост и пишется —
- * не работает. Поэтому заголовок для ОК обязателен.
+ * Заголовок из карточки поста нужен клиенту в самом посте, а не рядом с ним. Поле
+ * `title` публикации postmypost для этого не годится: до ленты ОК оно не доходит —
+ * сеть всё равно называет тему первой строкой текста. Проверено на живом посте:
+ * заголовок ушёл отдельным полем и в группе не появился.
  *
- * У ВК такого поля нет, там заголовок — просто первая строка текста, и передавать
- * его отдельно нечего.
+ * Хуже того, публикация с этим полем выходит в ОК без разметки ссылок: адреса в
+ * рекламных блоках остаются обычным текстом. Пост от 17.08 без `title` — ссылки
+ * кликабельны, пост с `title` — ни одной. Поэтому поле не отправляем вовсе, а
+ * заголовок вклеиваем в текст.
  *
- * Запасной вариант нужен на случай, когда модель не вернула заголовок и в базе лежит
- * заглушка: пустое поле и поле со словами «Без заголовка» одинаково бесполезны, но
- * второе ещё и видно подписчикам. Тогда берём первую строку текста.
+ * У ВК заголовок и так первая строка текста, там ничего не меняем.
  */
+export function okContent(post) {
+  const body = String(post?.body ?? '');
+  const title = okTitle(post);
+  if (!title) return body;
+  // Модель нередко начинает текст тем же заголовком. Второй раз его печатать незачем.
+  if (sameHeadline(firstLine(body), title)) return body;
+  return `${title}\n\n${body.replace(/^\s+/, '')}`;
+}
+
+/** Заголовок поста, пригодный к показу. Заглушка «Без заголовка» бесполезна и видна подписчикам. */
 export function okTitle(post) {
-  const candidates = [post?.title, firstLine(post?.body)];
-  for (const raw of candidates) {
-    const value = String(raw ?? '').replace(/\s+/g, ' ').trim();
-    if (!value || value.toLowerCase() === 'без заголовка') continue;
-    return clip(value, OK_TITLE_MAX);
-  }
-  return null;
+  const value = String(post?.title ?? '').replace(/\s+/g, ' ').trim();
+  if (!value || value.toLowerCase() === 'без заголовка') return null;
+  return clip(value, OK_TITLE_MAX);
 }
 
 function firstLine(body) {
   const line = String(body ?? '').split('\n').map((item) => item.trim()).find(Boolean);
   return line ?? '';
+}
+
+/**
+ * Совпадают ли строки как заголовки. Сравнение по буквам и цифрам: кавычки-ёлочки,
+ * восклицательный знак и двоеточие у модели гуляют, а строка при этом та же самая.
+ */
+function sameHeadline(a, b) {
+  const norm = (value) => String(value ?? '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  const left = norm(a);
+  const right = norm(b);
+  if (!left || !right) return false;
+  return left.startsWith(right) || right.startsWith(left);
 }
 
 /** Обрезка по словам: заголовок, оборванный на середине слова, выглядит как сбой. */
@@ -181,21 +199,20 @@ export async function publishPost(post, { groupIds, mode, postAt, ignoreDailyLim
         }
       }
 
-      // Заголовок уходит только в ОК: у ВК такого поля нет. В ОК без него ломаются
-      // ссылки в рекламных блоках — они перестают быть кликабельными.
+      // В ОК заголовок идёт первой строкой самого текста: отдельное поле title до
+      // ленты не доходит и вдобавок лишает ссылки в рекламных блоках кликабельности.
       const isOk = Number(group.chanel_id) === pmp.CHANEL_OK;
-      const title = isOk ? okTitle(post) : null;
-      if (isOk && !title) {
+      const content = isOk ? okContent(post) : post.body;
+      if (isOk && !okTitle(post)) {
         logger.warn(
           { пост: post.id, группа: group.name },
-          `Пост #${post.id} уходит в ОК без заголовка — ссылки в рекламных блоках могут не работать`,
+          `Пост #${post.id} уходит в ОК без заголовка — у поста пустое поле «заголовок»`,
         );
       }
 
       const publication = await pmp.createPublication({
         accountId: group.pmp_account_id,
-        content: post.body,
-        title,
+        content,
         fileIds: [fileId],
         postAt: postAtIso,
         status: pmpStatus,
