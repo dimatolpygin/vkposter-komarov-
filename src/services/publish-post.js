@@ -11,6 +11,47 @@ import { log, errFields } from '../logger.js';
 
 const logger = log('публикация');
 
+/** Потолок длины заголовка для ОК: длинный заголовок сеть обрезает сама, и лучше это сделать по словам. */
+const OK_TITLE_MAX = 120;
+
+/**
+ * Заголовок публикации для Одноклассников.
+ *
+ * У ОК заголовок — отдельное поле, и оно не косметическое: если его не заполнить,
+ * ссылки в рекламных блоках поста перестают быть кликабельными. Для клиента это
+ * означает, что пост выходит, а рекламная ссылка — ради которой пост и пишется —
+ * не работает. Поэтому заголовок для ОК обязателен.
+ *
+ * У ВК такого поля нет, там заголовок — просто первая строка текста, и передавать
+ * его отдельно нечего.
+ *
+ * Запасной вариант нужен на случай, когда модель не вернула заголовок и в базе лежит
+ * заглушка: пустое поле и поле со словами «Без заголовка» одинаково бесполезны, но
+ * второе ещё и видно подписчикам. Тогда берём первую строку текста.
+ */
+export function okTitle(post) {
+  const candidates = [post?.title, firstLine(post?.body)];
+  for (const raw of candidates) {
+    const value = String(raw ?? '').replace(/\s+/g, ' ').trim();
+    if (!value || value.toLowerCase() === 'без заголовка') continue;
+    return clip(value, OK_TITLE_MAX);
+  }
+  return null;
+}
+
+function firstLine(body) {
+  const line = String(body ?? '').split('\n').map((item) => item.trim()).find(Boolean);
+  return line ?? '';
+}
+
+/** Обрезка по словам: заголовок, оборванный на середине слова, выглядит как сбой. */
+function clip(value, max) {
+  if (value.length <= max) return value;
+  const cut = value.slice(0, max);
+  const space = cut.lastIndexOf(' ');
+  return (space > max * 0.6 ? cut.slice(0, space) : cut).replace(/[\s,;:—-]+$/, '');
+}
+
 /**
  * Публикация поста в группы ВК через postmypost.
  *
@@ -140,9 +181,21 @@ export async function publishPost(post, { groupIds, mode, postAt, ignoreDailyLim
         }
       }
 
+      // Заголовок уходит только в ОК: у ВК такого поля нет. В ОК без него ломаются
+      // ссылки в рекламных блоках — они перестают быть кликабельными.
+      const isOk = Number(group.chanel_id) === pmp.CHANEL_OK;
+      const title = isOk ? okTitle(post) : null;
+      if (isOk && !title) {
+        logger.warn(
+          { пост: post.id, группа: group.name },
+          `Пост #${post.id} уходит в ОК без заголовка — ссылки в рекламных блоках могут не работать`,
+        );
+      }
+
       const publication = await pmp.createPublication({
         accountId: group.pmp_account_id,
         content: post.body,
+        title,
         fileIds: [fileId],
         postAt: postAtIso,
         status: pmpStatus,
